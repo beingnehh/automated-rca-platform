@@ -396,52 +396,32 @@ scenario_choice = st.sidebar.selectbox(
         "recovery": "Network Recovery",
     }.get(value, value),
 )
+from rca_engine import run_rca
+from alarm_generator import generate_scenario
+from database import save_incident
 
-
-if st.sidebar.button(
-    "🚨 Run Simulation via API",
-    use_container_width=True,
-    type="primary",
-):
+# Inside your sidebar button logic:
+if st.sidebar.button("🚨 Run Simulation", use_container_width=True):
     try:
-        # Generate simulated network alarms
+        # Generate raw scenario alarms
         raw_alarms = generate_scenario(scenario_choice)
-
-        # Send alarms to the FastAPI backend
-        response = requests.post(
-            "http://127.0.0.1:8000/api/v1/alarms/ingest",
-            json=raw_alarms,
-            timeout=15,
-        )
-
-        if response.ok:
-            st.sidebar.success("Alarms processed by the API!")
-
-            with st.sidebar.expander("Backend response"):
-                try:
-                    st.json(response.json())
-                except ValueError:
-                    st.write(response.text)
-
+        
+        # Try calling FastAPI backend (if running locally)
+        response = requests.post("http://127.0.0.1:8000/api/v1/alarms/ingest", json=raw_alarms, timeout=2)
+        if response.status_code == 200:
+            st.sidebar.success("Simulation processed via FastAPI Backend!")
         else:
-            st.sidebar.error(
-                f"API returned HTTP {response.status_code}"
-            )
-            st.sidebar.code(response.text[:1000])
-
-    except requests.exceptions.ConnectionError:
-        st.sidebar.error(
-            "Cannot connect to FastAPI. "
-            "Start the backend on port 8000 first."
-        )
-
-    except requests.exceptions.Timeout:
-        st.sidebar.error(
-            "The API request timed out. Check the backend logs."
-        )
-
-    except Exception as error:
-        st.sidebar.error(f"Simulation failed: {error}")
+            raise Exception("API returned non-200 status")
+            
+    except Exception:
+        # Fallback for Cloud Deployment: Run backend RCA engine directly in Python!
+        raw_alarms = generate_scenario(scenario_choice)
+        incidents = run_rca(raw_alarms)
+        for inc in incidents:
+            save_incident(inc)
+        st.sidebar.success("Simulation processed directly by RCA Engine!")
+        
+    st.rerun()
 
 
 
